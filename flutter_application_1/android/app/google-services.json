@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "1080411495526",
+    "project_id": "artisian-connect",
+    "storage_bucket": "artisian-connect.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1080411495526:android:9dd7758b4feef47afde1a7",
+        "android_client_info": {
+          "package_name": "com.example.flutter_application_1"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBCyCiYMppM9TYA_bu6TLDAn1KT7sGEAZ8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
