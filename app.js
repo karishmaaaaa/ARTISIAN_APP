@@ -1,1 +1,0 @@
-console.log("Welcome to the ARTISIAN_APP!");

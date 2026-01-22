@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'screens/welcome.dart';
+import 'screens/login.dart';
 
 void main() {
   runApp(ArtisanApp());
@@ -11,7 +11,7 @@ class ArtisanApp extends StatelessWidget {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'Artisan Connect',
-      home: WelcomeScreen(),
+      home: LoginScreen(),
     );
   }
 }
