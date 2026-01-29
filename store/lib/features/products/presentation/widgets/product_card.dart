@@ -7,15 +7,13 @@ import '../../../../core/utils/extensions.dart';
 import '../../../cart/providers/cart_provider.dart';
 
 class ProductCard extends ConsumerWidget {
-  final ProductModel product;
+  final Product product;
   final bool showAddToCart;
-  final VoidCallback? onTap;
 
   const ProductCard({
     super.key,
     required this.product,
     this.showAddToCart = true,
-    this.onTap,
   });
 
   @override
@@ -25,7 +23,7 @@ class ProductCard extends ConsumerWidget {
     return Card(
       clipBehavior: Clip.antiAlias,
       child: InkWell(
-        onTap: onTap ?? () => context.push('/products/${product.id}'),
+        onTap: () => context.push('/products/${product.id}'),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -35,9 +33,9 @@ class ProductCard extends ConsumerWidget {
               child: Stack(
                 fit: StackFit.expand,
                 children: [
-                  product.imageUrls.isNotEmpty
+                  product.images.isNotEmpty
                       ? CachedNetworkImage(
-                          imageUrl: product.imageUrls.first,
+                          imageUrl: product.images.first,
                           fit: BoxFit.cover,
                           placeholder: (context, url) => Container(
                             color: theme.colorScheme.surfaceContainerHighest,
@@ -142,7 +140,7 @@ class ProductCard extends ConsumerWidget {
                             ),
                           ),
                           Text(
-                            ' (${product.totalReviews})',
+                            ' (${product.reviewCount})',
                             style: theme.textTheme.bodySmall?.copyWith(
                               color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
                             ),
@@ -157,9 +155,9 @@ class ProductCard extends ConsumerWidget {
                         Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            if (product.compareAtPrice != null && product.compareAtPrice! > product.price)
+                            if (product.originalPrice != null && product.originalPrice! > product.price)
                               Text(
-                                product.compareAtPrice!.toCurrency(),
+                                product.originalPrice!.toCurrency(),
                                 style: theme.textTheme.bodySmall?.copyWith(
                                   decoration: TextDecoration.lineThrough,
                                   color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
@@ -181,10 +179,7 @@ class ProductCard extends ConsumerWidget {
                               color: theme.colorScheme.primary,
                             ),
                             onPressed: () {
-                              ref.read(cartNotifierProvider.notifier).addToCart(
-                                product: product,
-                                quantity: 1,
-                              );
+                              ref.read(cartNotifierProvider.notifier).addToCart(product, 1);
                               ScaffoldMessenger.of(context).showSnackBar(
                                 SnackBar(
                                   content: Text('${product.name} added to cart'),
