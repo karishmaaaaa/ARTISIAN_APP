@@ -8,18 +8,18 @@ import '../../features/auth/presentation/screens/register_screen.dart';
 import '../../features/auth/presentation/screens/role_selection_screen.dart';
 import '../../features/auth/providers/auth_provider.dart';
 import '../../features/artisan/presentation/screens/artisan_dashboard_screen.dart';
-import '../../features/artisan/presentation/screens/artisan_profile_screen.dart';
-import '../../features/products/presentation/screens/product_management_screen.dart';
-import '../../features/products/presentation/screens/add_edit_product_screen.dart';
+import '../../../build/lib/features/artisan/presentation/screens/artisan_profile_screen.dart';
+import '../../../build/lib/features/products/presentation/screens/product_management_screen.dart';
+import '../../../build/lib/features/products/presentation/screens/add_edit_product_screen.dart';
 import '../../features/products/presentation/screens/product_detail_screen.dart';
-import '../../features/orders/presentation/screens/artisan_orders_screen.dart';
-import '../../features/orders/presentation/screens/order_detail_screen.dart';
-import '../../features/customer/presentation/screens/customer_home_screen.dart';
-import '../../features/customer/presentation/screens/artisan_storefront_screen.dart';
-import '../../features/customer/presentation/screens/customer_cart_screen.dart';
-import '../../features/customer/presentation/screens/customer_orders_screen.dart';
-import '../../features/customer/presentation/screens/customer_profile_screen.dart';
-import '../../features/customer/presentation/screens/browse_products_screen.dart';
+import '../../../build/lib/features/orders/presentation/screens/artisan_orders_screen.dart';
+import '../../../build/lib/features/orders/presentation/screens/order_detail_screen.dart';
+import '../../../build/lib/features/customer/presentation/screens/customer_home_screen.dart';
+import '../../../build/lib/features/customer/presentation/screens/artisan_storefront_screen.dart';
+import '../../../build/lib/features/customer/presentation/screens/customer_cart_screen.dart';
+import '../../../build/lib/features/customer/presentation/screens/customer_orders_screen.dart';
+import '../../../build/lib/features/customer/presentation/screens/customer_profile_screen.dart';
+import '../../../build/lib/features/customer/presentation/screens/browse_products_screen.dart';
 
 /// Route path constants for type-safe navigation
 class AppRoutes {

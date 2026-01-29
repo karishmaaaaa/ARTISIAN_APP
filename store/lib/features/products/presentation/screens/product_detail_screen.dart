@@ -7,8 +7,6 @@ import '../../../../core/utils/extensions.dart';
 import '../../providers/product_provider.dart';
 import '../../../cart/providers/cart_provider.dart';
 
-typedef Product = ProductModel;
-
 class ProductDetailScreen extends ConsumerStatefulWidget {
   final String productId;
 
@@ -85,10 +83,10 @@ class _ProductDetailScreenState extends ConsumerState<ProductDetailScreen> {
             background: Stack(
               children: [
                 PageView.builder(
-                  itemCount: product.imageUrls.isNotEmpty ? product.imageUrls.length : 1,
+                  itemCount: product.images.isNotEmpty ? product.images.length : 1,
                   onPageChanged: (index) => setState(() => _currentImageIndex = index),
                   itemBuilder: (context, index) {
-                    if (product.imageUrls.isEmpty) {
+                    if (product.images.isEmpty) {
                       return Container(
                         color: theme.colorScheme.surfaceContainerHighest,
                         child: Icon(
@@ -99,7 +97,7 @@ class _ProductDetailScreenState extends ConsumerState<ProductDetailScreen> {
                       );
                     }
                     return CachedNetworkImage(
-                      imageUrl: product.imageUrls[index],
+                      imageUrl: product.images[index],
                       fit: BoxFit.cover,
                       placeholder: (context, url) => Container(
                         color: theme.colorScheme.surfaceContainerHighest,
@@ -112,7 +110,7 @@ class _ProductDetailScreenState extends ConsumerState<ProductDetailScreen> {
                     );
                   },
                 ),
-                if (product.imageUrls.length > 1)
+                if (product.images.length > 1)
                   Positioned(
                     bottom: 16,
                     left: 0,
@@ -120,7 +118,7 @@ class _ProductDetailScreenState extends ConsumerState<ProductDetailScreen> {
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: List.generate(
-                        product.imageUrls.length,
+                        product.images.length,
                         (index) => AnimatedContainer(
                           duration: const Duration(milliseconds: 300),
                           margin: const EdgeInsets.symmetric(horizontal: 4),
@@ -179,7 +177,7 @@ class _ProductDetailScreenState extends ConsumerState<ProductDetailScreen> {
                                 ),
                                 const SizedBox(width: 8),
                                 Text(
-                                  '${product.rating} (${product.totalReviews} reviews)',
+                                  '${product.rating} (${product.reviewCount} reviews)',
                                   style: theme.textTheme.bodySmall?.copyWith(
                                     color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
                                   ),
@@ -192,10 +190,10 @@ class _ProductDetailScreenState extends ConsumerState<ProductDetailScreen> {
                     Column(
                       crossAxisAlignment: CrossAxisAlignment.end,
                       children: [
-                        if (product.compareAtPrice != null &&
-                            product.compareAtPrice! > product.price)
+                        if (product.originalPrice != null &&
+                            product.originalPrice! > product.price)
                           Text(
-                            product.compareAtPrice!.toCurrency(),
+                            product.originalPrice!.toCurrency(),
                             style: theme.textTheme.bodyLarge?.copyWith(
                               decoration: TextDecoration.lineThrough,
                               color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
@@ -300,8 +298,6 @@ class _ProductDetailScreenState extends ConsumerState<ProductDetailScreen> {
 
   Widget _buildDetailsSection(BuildContext context, Product product) {
     final theme = Theme.of(context);
-    final attributes = product.attributes;
-    
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -310,25 +306,32 @@ class _ProductDetailScreenState extends ConsumerState<ProductDetailScreen> {
       ),
       child: Column(
         children: [
-          _DetailRow(
-            icon: Icons.category_outlined,
-            label: 'Category',
-            value: product.category,
-          ),
-          if (attributes != null && attributes['materials'] != null) ...[
-            const Divider(),
+          if (product.materials.isNotEmpty)
             _DetailRow(
-              icon: Icons.palette_outlined,
+              icon: Icons.category_outlined,
               label: 'Materials',
-              value: attributes['materials'].toString(),
+              value: product.materials.join(', '),
             ),
-          ],
-          if (attributes != null && attributes['dimensions'] != null) ...[
+          if (product.dimensions != null) ...[
             const Divider(),
             _DetailRow(
               icon: Icons.straighten,
               label: 'Dimensions',
-              value: attributes['dimensions'].toString(),
+              value: product.dimensions!,
+            ),
+          ],
+          const Divider(),
+          _DetailRow(
+            icon: Icons.schedule,
+            label: 'Production Time',
+            value: '${product.productionDays} days',
+          ),
+          if (product.isCustomizable) ...[
+            const Divider(),
+            _DetailRow(
+              icon: Icons.brush,
+              label: 'Customizable',
+              value: 'Yes - Contact artisan for custom orders',
             ),
           ],
           const Divider(),

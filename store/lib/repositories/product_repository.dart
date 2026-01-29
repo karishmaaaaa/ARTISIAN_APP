@@ -1,299 +1,212 @@
+import 'dart:io';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_storage/firebase_storage.dart';
 import 'package:uuid/uuid.dart';
 
 import '../core/constants/app_constants.dart';
 import '../core/errors/failures.dart';
 import '../core/errors/result.dart';
-import '../models/order_model.dart';
-import '../models/cart_model.dart';
+import '../core/utils/helpers.dart';
+import '../models/product_model.dart';
 
-/// Repository for order management operations.
+/// Repository for product management operations.
 /// 
-/// Handles order creation, status updates, and queries
-/// for both artisans and customers.
-class OrderRepository {
+/// Handles CRUD operations for products including image uploads
+/// and complex queries for browsing/filtering.
+class ProductRepository {
   final FirebaseFirestore _firestore;
+  final FirebaseStorage _storage;
   final Uuid _uuid;
   
-  OrderRepository({
+  ProductRepository({
     FirebaseFirestore? firestore,
+    FirebaseStorage? storage,
   })  : _firestore = firestore ?? FirebaseFirestore.instance,
+        _storage = storage ?? FirebaseStorage.instance,
         _uuid = const Uuid();
   
-  /// Collection reference for orders
-  CollectionReference<Map<String, dynamic>> get _ordersRef =>
-      _firestore.collection(AppConstants.ordersCollection);
+  /// Collection reference for products
+  CollectionReference<Map<String, dynamic>> get _productsRef =>
+      _firestore.collection(AppConstants.productsCollection);
   
-  /// Create orders from cart items (one order per artisan)
-  Future<Result<List<OrderModel>>> createOrdersFromCart({
-    required String customerId,
-    required CartModel cart,
-    required ShippingAddress shippingAddress,
-    String? notes,
+  /// Create a new product
+  Future<Result<ProductModel>> createProduct({
+    required String artisanId,
+    required String name,
+    required String description,
+    required double price,
+    double? compareAtPrice,
+    required String category,
+    List<String> tags = const [],
+    required int stockQuantity,
+    List<File>? images,
+    Map<String, dynamic>? attributes,
   }) async {
     try {
-      final orders = <OrderModel>[];
-      final batch = _firestore.batch();
+      final productId = _uuid.v4();
       final now = DateTime.now();
       
-      // Group cart items by artisan
-      final itemsByArtisan = cart.itemsByArtisan;
-      
-      for (final entry in itemsByArtisan.entries) {
-        final artisanId = entry.key;
-        final items = entry.value;
-        
-        // Calculate totals for this order
-        final subtotal = items.fold<double>(
-          0.0,
-          (sum, item) => sum + item.subtotal,
-        );
-        
-        // You can implement shipping cost calculation logic here
-        const shippingCost = 0.0;
-        final tax = subtotal * 0.0; // Implement tax calculation as needed
-        final total = subtotal + shippingCost + tax;
-        
-        final orderId = _uuid.v4();
-        
-        final order = OrderModel(
-          id: orderId,
-          customerId: customerId,
-          artisanId: artisanId,
-          items: items.map((item) => OrderItem(
-            productId: item.productId,
-            productName: item.productName,
-            productImageUrl: item.productImageUrl,
-            price: item.price,
-            quantity: item.quantity,
-            selectedAttributes: item.selectedAttributes,
-          )).toList(),
-          subtotal: subtotal,
-          shippingCost: shippingCost,
-          tax: tax,
-          total: total,
-          status: OrderStatus.pending,
-          shippingAddress: shippingAddress,
-          notes: notes,
-          createdAt: now,
-          updatedAt: now,
-        );
-        
-        orders.add(order);
-        batch.set(_ordersRef.doc(orderId), order.toJson());
-        
-        // Update artisan stats
-        final artisanRef = _firestore
-            .collection(AppConstants.artisansCollection)
-            .doc(artisanId);
-        batch.update(artisanRef, {
-          'totalOrders': FieldValue.increment(1),
-          'updatedAt': Timestamp.fromDate(now),
-        });
-        
-        // Update product stock for each item
-        for (final item in items) {
-          final productRef = _firestore
-              .collection(AppConstants.productsCollection)
-              .doc(item.productId);
-          batch.update(productRef, {
-            'stockQuantity': FieldValue.increment(-item.quantity),
-            'totalSold': FieldValue.increment(item.quantity),
-            'updatedAt': Timestamp.fromDate(now),
-          });
-        }
+      // Upload images if provided
+      List<String> imageUrls = [];
+      if (images != null && images.isNotEmpty) {
+        imageUrls = await _uploadProductImages(productId, images);
       }
       
-      // Clear the cart
-      final cartRef = _firestore
-          .collection(AppConstants.cartCollection)
-          .doc(customerId);
-      batch.update(cartRef, {
-        'items': [],
-        'updatedAt': Timestamp.fromDate(now),
-      });
-      
-      await batch.commit();
-      
-      return Result.success(orders);
-    } catch (e) {
-      return Result.failure(DatabaseFailure.fromFirestore(e));
-    }
-  }
-  
-  /// Update order status
-  Future<Result<OrderModel>> updateOrderStatus({
-    required String orderId,
-    required OrderStatus newStatus,
-    String? trackingNumber,
-  }) async {
-    try {
-      final now = DateTime.now();
-      
-      final updates = <String, dynamic>{
-        'status': newStatus.value,
-        'updatedAt': Timestamp.fromDate(now),
-        if (trackingNumber != null) 'trackingNumber': trackingNumber,
-      };
-      
-      // Set timestamps for specific status changes
-      if (newStatus == OrderStatus.shipped) {
-        updates['shippedAt'] = Timestamp.fromDate(now);
-      } else if (newStatus == OrderStatus.completed) {
-        updates['completedAt'] = Timestamp.fromDate(now);
-        
-        // Update artisan's total sales
-        final orderDoc = await _ordersRef.doc(orderId).get();
-        if (orderDoc.exists) {
-          final order = OrderModel.fromFirestore(orderDoc);
-          await _firestore
-              .collection(AppConstants.artisansCollection)
-              .doc(order.artisanId)
-              .update({
-            'totalSales': FieldValue.increment(order.total),
-          });
-        }
-      }
-      
-      await _ordersRef.doc(orderId).update(updates);
-      
-      // Fetch updated order
-      final doc = await _ordersRef.doc(orderId).get();
-      return Result.success(OrderModel.fromFirestore(doc));
-    } catch (e) {
-      return Result.failure(DatabaseFailure.fromFirestore(e));
-    }
-  }
-  
-  /// Cancel an order
-  Future<Result<OrderModel>> cancelOrder({
-    required String orderId,
-    String? reason,
-  }) async {
-    try {
-      final orderDoc = await _ordersRef.doc(orderId).get();
-      
-      if (!orderDoc.exists) {
-        return Result.failure(
-          const DatabaseFailure(message: 'Order not found'),
-        );
-      }
-      
-      final order = OrderModel.fromFirestore(orderDoc);
-      
-      if (!order.canBeCancelled) {
-        return Result.failure(
-          const DatabaseFailure(message: 'This order cannot be cancelled'),
-        );
-      }
-      
-      final now = DateTime.now();
-      final batch = _firestore.batch();
-      
-      // Update order status
-      batch.update(_ordersRef.doc(orderId), {
-        'status': OrderStatus.cancelled.value,
-        'updatedAt': Timestamp.fromDate(now),
-        if (reason != null) 'cancellationReason': reason,
-      });
-      
-      // Restore product stock
-      for (final item in order.items) {
-        final productRef = _firestore
-            .collection(AppConstants.productsCollection)
-            .doc(item.productId);
-        batch.update(productRef, {
-          'stockQuantity': FieldValue.increment(item.quantity),
-          'totalSold': FieldValue.increment(-item.quantity),
-          'updatedAt': Timestamp.fromDate(now),
-        });
-      }
-      
-      // Update artisan stats
-      batch.update(
-        _firestore
-            .collection(AppConstants.artisansCollection)
-            .doc(order.artisanId),
-        {
-          'totalOrders': FieldValue.increment(-1),
-          'updatedAt': Timestamp.fromDate(now),
-        },
+      final product = ProductModel(
+        id: productId,
+        artisanId: artisanId,
+        name: name,
+        description: description,
+        price: price,
+        compareAtPrice: compareAtPrice,
+        imageUrls: imageUrls,
+        category: category,
+        tags: tags,
+        stockQuantity: stockQuantity,
+        attributes: attributes,
+        createdAt: now,
+        updatedAt: now,
       );
       
-      await batch.commit();
+      await _productsRef.doc(productId).set(product.toJson());
       
-      // Fetch updated order
-      final updatedDoc = await _ordersRef.doc(orderId).get();
-      return Result.success(OrderModel.fromFirestore(updatedDoc));
+      // Update artisan's product count
+      await _firestore
+          .collection(AppConstants.artisansCollection)
+          .doc(artisanId)
+          .update({
+        'totalProducts': FieldValue.increment(1),
+        'updatedAt': Timestamp.fromDate(now),
+      });
+      
+      return Result.success(product);
     } catch (e) {
       return Result.failure(DatabaseFailure.fromFirestore(e));
     }
   }
   
-  /// Get a single order by ID
-  Future<Result<OrderModel>> getOrder(String orderId) async {
+  /// Update an existing product
+  Future<Result<ProductModel>> updateProduct({
+    required String productId,
+    String? name,
+    String? description,
+    double? price,
+    double? compareAtPrice,
+    String? category,
+    List<String>? tags,
+    int? stockQuantity,
+    List<String>? imageUrls,
+    List<File>? newImages,
+    bool? isActive,
+    bool? isFeatured,
+    Map<String, dynamic>? attributes,
+  }) async {
     try {
-      final doc = await _ordersRef.doc(orderId).get();
+      final now = DateTime.now();
+      
+      // If there are new images, upload them
+      List<String>? updatedImageUrls = imageUrls;
+      if (newImages != null && newImages.isNotEmpty) {
+        final newUrls = await _uploadProductImages(productId, newImages);
+        updatedImageUrls = [...?imageUrls, ...newUrls];
+      }
+      
+      final updates = <String, dynamic>{
+        'updatedAt': Timestamp.fromDate(now),
+        if (name != null) 'name': name,
+        if (name != null) 'nameLowercase': name.toLowerCase(),
+        if (description != null) 'description': description,
+        if (price != null) 'price': price,
+        if (compareAtPrice != null) 'compareAtPrice': compareAtPrice,
+        if (category != null) 'category': category,
+        if (tags != null) 'tags': tags,
+        if (stockQuantity != null) 'stockQuantity': stockQuantity,
+        if (updatedImageUrls != null) 'imageUrls': updatedImageUrls,
+        if (isActive != null) 'isActive': isActive,
+        if (isFeatured != null) 'isFeatured': isFeatured,
+        if (attributes != null) 'attributes': attributes,
+      };
+      
+      await _productsRef.doc(productId).update(updates);
+      
+      // Fetch updated product
+      final doc = await _productsRef.doc(productId).get();
+      return Result.success(ProductModel.fromFirestore(doc));
+    } catch (e) {
+      return Result.failure(DatabaseFailure.fromFirestore(e));
+    }
+  }
+  
+  /// Delete a product
+  Future<Result<void>> deleteProduct({
+    required String productId,
+    required String artisanId,
+  }) async {
+    try {
+      // Get product to delete its images
+      final doc = await _productsRef.doc(productId).get();
+      if (doc.exists) {
+        final product = ProductModel.fromFirestore(doc);
+        
+        // Delete images from storage
+        for (final url in product.imageUrls) {
+          try {
+            await _storage.refFromURL(url).delete();
+          } catch (_) {
+            // Ignore image deletion errors
+          }
+        }
+      }
+      
+      await _productsRef.doc(productId).delete();
+      
+      // Update artisan's product count
+      await _firestore
+          .collection(AppConstants.artisansCollection)
+          .doc(artisanId)
+          .update({
+        'totalProducts': FieldValue.increment(-1),
+        'updatedAt': Timestamp.fromDate(DateTime.now()),
+      });
+      
+      return Result.success(null);
+    } catch (e) {
+      return Result.failure(DatabaseFailure.fromFirestore(e));
+    }
+  }
+  
+  /// Get a single product by ID
+  Future<Result<ProductModel>> getProduct(String productId) async {
+    try {
+      final doc = await _productsRef.doc(productId).get();
       
       if (!doc.exists) {
         return Result.failure(
-          const DatabaseFailure(message: 'Order not found'),
+          const DatabaseFailure(message: 'Product not found'),
         );
       }
       
-      return Result.success(OrderModel.fromFirestore(doc));
+      return Result.success(ProductModel.fromFirestore(doc));
     } catch (e) {
       return Result.failure(DatabaseFailure.fromFirestore(e));
     }
   }
   
-  /// Get orders for a customer
-  Future<Result<List<OrderModel>>> getCustomerOrders(
-    String customerId, {
-    int limit = AppConstants.ordersPerPage,
-    DocumentSnapshot? startAfter,
-    OrderStatus? status,
-  }) async {
-    try {
-      Query<Map<String, dynamic>> query = _ordersRef
-          .where('customerId', isEqualTo: customerId)
-          .orderBy('createdAt', descending: true)
-          .limit(limit);
-      
-      if (status != null) {
-        query = query.where('status', isEqualTo: status.value);
-      }
-      
-      if (startAfter != null) {
-        query = query.startAfterDocument(startAfter);
-      }
-      
-      final snapshot = await query.get();
-      final orders = snapshot.docs
-          .map((doc) => OrderModel.fromFirestore(doc))
-          .toList();
-      
-      return Result.success(orders);
-    } catch (e) {
-      return Result.failure(DatabaseFailure.fromFirestore(e));
-    }
-  }
-  
-  /// Get orders for an artisan
-  Future<Result<List<OrderModel>>> getArtisanOrders(
+  /// Get products by artisan
+  Future<Result<List<ProductModel>>> getProductsByArtisan(
     String artisanId, {
-    int limit = AppConstants.ordersPerPage,
+    int limit = AppConstants.productsPerPage,
     DocumentSnapshot? startAfter,
-    OrderStatus? status,
+    bool activeOnly = false,
   }) async {
     try {
-      Query<Map<String, dynamic>> query = _ordersRef
+      Query<Map<String, dynamic>> query = _productsRef
           .where('artisanId', isEqualTo: artisanId)
           .orderBy('createdAt', descending: true)
           .limit(limit);
       
-      if (status != null) {
-        query = query.where('status', isEqualTo: status.value);
+      if (activeOnly) {
+        query = query.where('isActive', isEqualTo: true);
       }
       
       if (startAfter != null) {
@@ -301,78 +214,164 @@ class OrderRepository {
       }
       
       final snapshot = await query.get();
-      final orders = snapshot.docs
-          .map((doc) => OrderModel.fromFirestore(doc))
+      final products = snapshot.docs
+          .map((doc) => ProductModel.fromFirestore(doc))
           .toList();
       
-      return Result.success(orders);
+      return Result.success(products);
     } catch (e) {
       return Result.failure(DatabaseFailure.fromFirestore(e));
     }
   }
   
-  /// Stream of orders for artisan
-  Stream<List<OrderModel>> artisanOrdersStream(String artisanId) {
-    return _ordersRef
+  /// Get all active products with filtering
+  Future<Result<List<ProductModel>>> getProducts({
+    String? category,
+    String? searchQuery,
+    double? minPrice,
+    double? maxPrice,
+    int limit = AppConstants.productsPerPage,
+    DocumentSnapshot? startAfter,
+    String sortBy = 'createdAt',
+    bool descending = true,
+  }) async {
+    try {
+      Query<Map<String, dynamic>> query = _productsRef
+          .where('isActive', isEqualTo: true);
+      
+      if (category != null && category.isNotEmpty) {
+        query = query.where('category', isEqualTo: category);
+      }
+      
+      if (minPrice != null) {
+        query = query.where('price', isGreaterThanOrEqualTo: minPrice);
+      }
+      
+      if (maxPrice != null) {
+        query = query.where('price', isLessThanOrEqualTo: maxPrice);
+      }
+      
+      query = query.orderBy(sortBy, descending: descending).limit(limit);
+      
+      if (startAfter != null) {
+        query = query.startAfterDocument(startAfter);
+      }
+      
+      final snapshot = await query.get();
+      var products = snapshot.docs
+          .map((doc) => ProductModel.fromFirestore(doc))
+          .toList();
+      
+      // Client-side text search (for demo - use Algolia/ElasticSearch in production)
+      if (searchQuery != null && searchQuery.isNotEmpty) {
+        final searchLower = searchQuery.toLowerCase();
+        products = products.where((p) =>
+            p.name.toLowerCase().contains(searchLower) ||
+            p.description.toLowerCase().contains(searchLower) ||
+            p.tags.any((t) => t.toLowerCase().contains(searchLower))
+        ).toList();
+      }
+      
+      return Result.success(products);
+    } catch (e) {
+      return Result.failure(DatabaseFailure.fromFirestore(e));
+    }
+  }
+  
+  /// Get featured products
+  Future<Result<List<ProductModel>>> getFeaturedProducts({
+    int limit = 10,
+  }) async {
+    try {
+      final snapshot = await _productsRef
+          .where('isActive', isEqualTo: true)
+          .where('isFeatured', isEqualTo: true)
+          .orderBy('createdAt', descending: true)
+          .limit(limit)
+          .get();
+      
+      final products = snapshot.docs
+          .map((doc) => ProductModel.fromFirestore(doc))
+          .toList();
+      
+      return Result.success(products);
+    } catch (e) {
+      return Result.failure(DatabaseFailure.fromFirestore(e));
+    }
+  }
+  
+  /// Stream of products by artisan
+  Stream<List<ProductModel>> productsStreamByArtisan(String artisanId) {
+    return _productsRef
         .where('artisanId', isEqualTo: artisanId)
         .orderBy('createdAt', descending: true)
         .snapshots()
         .map((snapshot) => snapshot.docs
-            .map((doc) => OrderModel.fromFirestore(doc))
+            .map((doc) => ProductModel.fromFirestore(doc))
             .toList());
   }
   
-  /// Stream of orders for customer
-  Stream<List<OrderModel>> customerOrdersStream(String customerId) {
-    return _ordersRef
-        .where('customerId', isEqualTo: customerId)
-        .orderBy('createdAt', descending: true)
-        .snapshots()
-        .map((snapshot) => snapshot.docs
-            .map((doc) => OrderModel.fromFirestore(doc))
-            .toList());
-  }
-  
-  /// Get order statistics for artisan dashboard
-  Future<Result<Map<String, dynamic>>> getArtisanOrderStats(
-    String artisanId,
+  /// Upload product images to Firebase Storage
+  Future<List<String>> _uploadProductImages(
+    String productId,
+    List<File> images,
   ) async {
+    final urls = <String>[];
+    
+    for (int i = 0; i < images.length; i++) {
+      final file = images[i];
+      
+      // Compress image before upload
+      final compressedFile = await Helpers.compressImage(file);
+      final uploadFile = compressedFile ?? file;
+      
+      final filename = Helpers.generateUniqueFilename('product_$i.jpg');
+      final ref = _storage
+          .ref()
+          .child(AppConstants.productImagesPath)
+          .child(productId)
+          .child(filename);
+      
+      await ref.putFile(uploadFile);
+      final url = await ref.getDownloadURL();
+      urls.add(url);
+    }
+    
+    return urls;
+  }
+  
+  /// Delete a single product image
+  Future<Result<void>> deleteProductImage({
+    required String productId,
+    required String imageUrl,
+  }) async {
     try {
-      final now = DateTime.now();
-      final startOfMonth = DateTime(now.year, now.month, 1);
+      // Delete from storage
+      await _storage.refFromURL(imageUrl).delete();
       
-      // Get all orders for this artisan
-      final snapshot = await _ordersRef
-          .where('artisanId', isEqualTo: artisanId)
-          .get();
-      
-      final orders = snapshot.docs
-          .map((doc) => OrderModel.fromFirestore(doc))
-          .toList();
-      
-      // Calculate statistics
-      final pendingOrders = orders.where((o) => o.status == OrderStatus.pending).length;
-      final completedOrders = orders.where((o) => o.status == OrderStatus.completed).length;
-      final totalRevenue = orders
-          .where((o) => o.status == OrderStatus.completed)
-          .fold<double>(0.0, (sum, o) => sum + o.total);
-      
-      // This month's orders
-      final thisMonthOrders = orders
-          .where((o) => o.createdAt.isAfter(startOfMonth))
-          .toList();
-      final thisMonthRevenue = thisMonthOrders
-          .where((o) => o.status == OrderStatus.completed)
-          .fold<double>(0.0, (sum, o) => sum + o.total);
-      
-      return Result.success({
-        'totalOrders': orders.length,
-        'pendingOrders': pendingOrders,
-        'completedOrders': completedOrders,
-        'totalRevenue': totalRevenue,
-        'thisMonthOrders': thisMonthOrders.length,
-        'thisMonthRevenue': thisMonthRevenue,
+      // Remove from product document
+      await _productsRef.doc(productId).update({
+        'imageUrls': FieldValue.arrayRemove([imageUrl]),
+        'updatedAt': Timestamp.fromDate(DateTime.now()),
       });
+      
+      return Result.success(null);
+    } catch (e) {
+      return Result.failure(StorageFailure.fromFirebaseStorage(e));
+    }
+  }
+  
+  /// Update product stock
+  Future<Result<void>> updateStock({
+    required String productId,
+    required int quantityChange,
+  }) async {
+    try {
+      await _productsRef.doc(productId).update({
+        'stockQuantity': FieldValue.increment(quantityChange),
+        'updatedAt': Timestamp.fromDate(DateTime.now()),
+      });
+      return Result.success(null);
     } catch (e) {
       return Result.failure(DatabaseFailure.fromFirestore(e));
     }

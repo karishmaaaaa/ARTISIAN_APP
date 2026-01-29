@@ -39,9 +39,6 @@ final productProvider = FutureProvider.family<ProductModel?, String>(
   },
 );
 
-/// Alias for productProvider (for backwards compatibility)
-final productByIdProvider = productProvider;
-
 /// Provider for featured products
 final featuredProductsProvider = FutureProvider<List<ProductModel>>((ref) async {
   final repo = ref.watch(productRepositoryProvider);
@@ -277,21 +274,4 @@ class ProductController {
 final productControllerProvider = Provider<ProductController>((ref) {
   final repo = ref.watch(productRepositoryProvider);
   return ProductController(repo);
-});
-
-/// Provider for browsing products with filters (FutureProvider version for simple queries)
-final browseProductsProvider = FutureProvider.family<List<ProductModel>, ({
-  String? category,
-  String? searchQuery,
-  String? sortBy,
-  bool? descending,
-})>((ref, params) async {
-  final repo = ref.watch(productRepositoryProvider);
-  final result = await repo.getProducts(
-    category: params.category,
-    searchQuery: params.searchQuery,
-    sortBy: params.sortBy ?? 'createdAt',
-    descending: params.descending ?? true,
-  );
-  return result.getOrElse([]);
 });
